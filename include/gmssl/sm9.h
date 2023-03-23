@@ -554,7 +554,21 @@ int sm9_decrypt(const SM9_ENC_KEY *key, const char *id, size_t idlen,
 	const uint8_t *in, size_t inlen, uint8_t *out, size_t *outlen);
 
 
+int sm9_point_to_uncompressed(const SM9_POINT *P, uint8_t octets[64]);
+int sm9_point_from_uncompressed(SM9_POINT *P, const uint8_t octets[64]);
 
+int sm9_kem_encrypt_fix_r(const SM9_ENC_MASTER_KEY *mpk, const char *id, size_t idlen, 
+        size_t klen, uint8_t *kbuf, SM9_POINT *C, sm9_fp_t r);
+int sm9_curve1_compute_prikey(const SM9_ENC_MASTER_KEY *mpk, const char *id, size_t idlen, 
+        uint8_t kbuf[32], sm9_fp_t fix_r);
+int sm9_curve1_do_encrypt(const SM9_POINT *P, const uint8_t *in, size_t inlen, 
+        uint8_t *out, size_t * outlen);
+int sm9_curve1_encrypt(const uint8_t pubkey[64], const uint8_t *in, size_t inlen, 
+        uint8_t *out, size_t *outlen);
+int sm9_curve1_do_decrypt(const sm9_fn_t d, const uint8_t *in, size_t inlen, 
+        uint8_t *out, size_t * outlen);
+int sm9_curve1_decrypt(const uint8_t private_key[32], const uint8_t *in, size_t inlen, 
+        uint8_t *out, size_t *outlen);
 #ifdef  __cplusplus
 }
 #endif

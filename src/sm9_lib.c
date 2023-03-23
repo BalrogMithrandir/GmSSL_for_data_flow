@@ -512,3 +512,253 @@ int sm9_decrypt(const SM9_ENC_KEY *key, const char *id, size_t idlen,
 	}
 	return 1;
 }
+
+#if 1
+extern int sm2_kdf(const uint8_t *in, size_t inlen, size_t outlen, uint8_t *out);
+int sm9_curve1_do_encrypt(const SM9_POINT *P, const uint8_t *in, size_t inlen, 
+        uint8_t *out, size_t * outlen)
+{
+	sm9_fn_t k;
+    SM9_POINT C1;
+	SM9_POINT kP;
+	uint8_t x2y2[64];
+	SM3_CTX sm3_ctx;
+
+	if (!(SM2_MIN_PLAINTEXT_SIZE <= inlen && inlen <= SM2_MAX_PLAINTEXT_SIZE)) {
+		error_print();
+		return -1;
+	}
+
+	// S = h * P, check S != O
+	// for sm9 curve G1, h == cf == 1 and S == P
+    if (1 == sm9_point_is_at_infinity(P)) {
+        error_print();
+        return -1;
+    }
+
+retry:
+	// rand k in [1, N - 1]
+	do {
+		if (sm9_fn_rand(k) != 1) {
+			error_print();
+			return -1;
+		}
+	} while (sm9_fp_is_zero(k));	
+    
+
+	// output C1 = k * G = k * P1 = (x1, y1)
+    sm9_point_mul_generator(&C1, k);
+    sm9_point_to_uncompressed(&C1, out);
+
+	// k * P = (x2, y2)
+	sm9_point_mul(&kP, k, P);
+	sm9_point_to_uncompressed_octets(&kP, x2y2);
+
+	// t = KDF(x2 || y2, inlen)
+	sm2_kdf(x2y2, 64, inlen, out + 96);
+
+	// if t is all zero, retry
+	if (1 == mem_is_zero(out + 96, inlen)) {
+		goto retry;
+	}
+
+	// output C2 = M xor t
+	gmssl_memxor(out + 96, out + 96, in, inlen);
+
+	// output C3 = Hash(x2 || m || y2)
+	sm3_init(&sm3_ctx);
+	sm3_update(&sm3_ctx, x2y2, 32);
+	sm3_update(&sm3_ctx, in, inlen);
+	sm3_update(&sm3_ctx, x2y2 + 32, 32);
+	sm3_finish(&sm3_ctx, out + 64);
+
+    *outlen = 96 + inlen;
+	
+	gmssl_secure_clear(k, sizeof(k));
+	gmssl_secure_clear(&C1, sizeof(SM9_POINT));
+	gmssl_secure_clear(&kP, sizeof(SM9_POINT));
+	gmssl_secure_clear(x2y2, sizeof(x2y2));
+	return 1;
+}
+
+int sm9_curve1_encrypt(const uint8_t pubkey[64], const uint8_t *in, size_t inlen, uint8_t *out, size_t *outlen)
+{
+	if (!in || !out || !outlen) {
+		error_print();
+		return -1;
+	}
+	if (!inlen) {
+		error_print();
+		return -1;
+	}
+
+    SM9_POINT pubkey_point;
+	if (sm9_point_from_uncompressed(&pubkey_point, pubkey) != 1) {
+		error_print();
+		return -1;
+	}
+
+	if (sm9_curve1_do_encrypt(&pubkey_point, in, inlen, out, outlen) != 1) {
+		error_print();
+		return -1;
+	}
+	
+	return 1;
+}
+
+int sm9_curve1_do_decrypt(const sm9_fn_t d, const uint8_t *in, size_t inlen, 
+        uint8_t *out, size_t * outlen)
+{
+    SM9_POINT C1;
+	uint8_t x2y2[64];
+    int32_t cipher_size = inlen - 64 - 32;
+	SM3_CTX sm3_ctx;
+	uint8_t hash[32];
+
+    int ret = -1;
+
+	if (!(SM2_MIN_PLAINTEXT_SIZE <= cipher_size && cipher_size <= SM2_MAX_PLAINTEXT_SIZE)) {
+		error_print();
+		return -1;
+	}
+
+    //sm9_point_from_uncompressed has checked whether C1 is on curve
+    if (1 != sm9_point_from_uncompressed(&C1, in)) { 
+        error_print();
+        return -1;
+    }
+
+	// check if S = h * C1 = cf * C1 is point at infinity
+    if (1 == sm9_point_is_at_infinity(&C1)) {
+        error_print();
+        return -1;
+    }
+
+	// d * C1 = (x2, y2)
+	sm9_point_mul(&C1, d, &C1);
+    sm9_point_to_uncompressed(&C1, x2y2);
+    
+	// t = KDF(x2 || y2, inlen)
+	sm2_kdf(x2y2, 64, cipher_size, out);
+	if (1 == mem_is_zero(out, cipher_size)) {
+		error_print();
+		goto end;
+    }
+
+	// output M = C2 xor t
+	gmssl_memxor(out, out, in + 32 + 64, cipher_size);
+
+	// u = Hash(x2 || M || y2)
+	sm3_init(&sm3_ctx);
+	sm3_update(&sm3_ctx, x2y2, 32);
+	sm3_update(&sm3_ctx, out, cipher_size);
+	sm3_update(&sm3_ctx, x2y2 + 32, 32);
+	sm3_finish(&sm3_ctx, hash);
+
+	// check if u == C3
+	if (memcmp(in + 64, hash, sizeof(hash)) != 0) {
+		error_print();
+		goto end;
+	}
+
+    *outlen = cipher_size;
+    ret = 1;
+
+end:	
+	gmssl_secure_clear(&C1, sizeof(SM9_POINT));
+	gmssl_secure_clear(x2y2, sizeof(x2y2));
+	gmssl_secure_clear(hash, sizeof(hash));
+	return ret;
+}
+
+int sm9_curve1_decrypt(const uint8_t private_key[32], const uint8_t *in, size_t inlen, uint8_t *out, size_t *outlen)
+{
+	if (!in || !out || !outlen) {
+		error_print();
+		return -1;
+	}
+	if (!inlen) {
+		error_print();
+		return -1;
+	}
+
+    sm9_fn_t d;
+	if (sm9_fn_from_bytes(d, private_key) != 1) {
+		error_print();
+		return -1;
+	}
+
+	if (sm9_curve1_do_decrypt(d, in, inlen, out, outlen) != 1) {
+		error_print();
+		return -1;
+	}
+	
+	return 1;
+}
+
+//k = r* [H1(ID || hid, N) + ke]
+int sm9_curve1_compute_prikey(const SM9_ENC_MASTER_KEY *mpk, const char *id, size_t idlen,
+	uint8_t kbuf[32], sm9_fp_t fix_r)
+{
+	sm9_fn_t r;
+
+	//k = [H1(ID||hid,N) + ke] * fix_r
+	sm9_hash1(r, id, idlen, SM9_HID_ENC);
+    sm9_fp_add(r, r, mpk->ke);	
+    sm9_fp_mul(r, r, fix_r);	
+	
+    if (sm9_fp_is_zero(r) == 1) {
+        error_print();
+        return -1;
+    }
+
+
+	gmssl_secure_clear(&r, sizeof(r));
+	return 1;
+}
+
+int sm9_kem_encrypt_fix_r(const SM9_ENC_MASTER_KEY *mpk, const char *id, size_t idlen,
+	size_t klen, uint8_t *kbuf, SM9_POINT *C, sm9_fn_t fix_r)
+{
+	sm9_fn_t r;
+	sm9_fp12_t w;
+	uint8_t wbuf[32 * 12];
+	uint8_t cbuf[65];
+	SM3_KDF_CTX kdf_ctx;
+
+	// A1: Q = H1(ID||hid,N) * P1 + Ppube
+	sm9_hash1(r, id, idlen, SM9_HID_ENC);
+	sm9_point_mul(C, r, SM9_P1);
+	sm9_point_add(C, C, &mpk->Ppube);
+
+	do {
+		// A3: C1 = r * Q
+		sm9_point_mul(C, fix_r, C);
+		sm9_point_to_uncompressed_octets(C, cbuf);
+
+		// A4: g = e(Ppube, P2)
+		sm9_pairing(w, SM9_P2, &mpk->Ppube);
+
+		// A5: w = g^r
+		sm9_fp12_pow(w, w, fix_r);
+		sm9_fp12_to_bytes(w, wbuf);
+
+		// A6: K = KDF(C || w || ID_B, klen), if K == 0, goto A2
+		sm3_kdf_init(&kdf_ctx, klen);
+		sm3_kdf_update(&kdf_ctx, cbuf + 1, 64);
+		sm3_kdf_update(&kdf_ctx, wbuf, sizeof(wbuf));
+		sm3_kdf_update(&kdf_ctx, (uint8_t *)id, idlen);
+		sm3_kdf_finish(&kdf_ctx, kbuf);
+
+	} while (mem_is_zero(kbuf, klen) == 1);
+
+	gmssl_secure_clear(&r, sizeof(r));
+	gmssl_secure_clear(&w, sizeof(w));
+	gmssl_secure_clear(wbuf, sizeof(wbuf));
+	gmssl_secure_clear(&kdf_ctx, sizeof(kdf_ctx));
+
+	// A7: output (K, C)
+	return 1;
+}
+
+#endif

@@ -2350,6 +2350,28 @@ int sm9_point_from_uncompressed_octets(SM9_POINT *P, const uint8_t octets[65])
 	return 1;
 }
 
+int sm9_point_to_uncompressed(const SM9_POINT *P, uint8_t octets[64])
+{
+	sm9_fp_t x;
+	sm9_fp_t y;
+	sm9_point_get_xy(P, x, y);
+	sm9_bn_to_bytes(x, octets);
+	sm9_bn_to_bytes(y, octets + 32);
+	return 1;
+}
+
+int sm9_point_from_uncompressed(SM9_POINT *P, const uint8_t octets[64])
+{
+	memset(P, 0, sizeof(*P));
+	sm9_bn_from_bytes(P->X, octets);
+	sm9_bn_from_bytes(P->Y, octets + 32);
+	sm9_fp_set_one(P->Z);
+	if (!sm9_point_is_on_curve(P)) {
+		error_print();
+		return -1;
+	}
+	return 1;
+}
 int sm9_twist_point_to_uncompressed_octets(const SM9_TWIST_POINT *P, uint8_t octets[129])
 {
 	octets[0] = 0x04;
