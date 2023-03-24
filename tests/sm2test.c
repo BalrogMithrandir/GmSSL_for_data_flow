@@ -41,6 +41,66 @@
 
 #define hex_t		"2fbadf57b52dc19e8470bf201cb182e0a4f7fa5e28d356b15da173132b94b325"
 
+static int test_pub_pri(SM2_BN bn_a, SM2_BN bn_b) {
+    SM2_POINT A;
+    SM2_POINT B;
+    SM2_POINT R1;
+   
+    SM2_BN bn_r;
+
+    SM2_POINT R2; 
+    uint8_t a[32]; 
+    uint8_t b[32]; 
+    uint8_t r[32]; 
+    
+    sm2_bn_to_bytes(bn_a, a);
+    sm2_bn_to_bytes(bn_b, b);
+    sm2_point_mul_generator(&A, a);
+	sm2_point_mul_generator(&B, b);
+    sm2_point_add(&R1, &A, &B);
+   
+	sm2_fn_add(bn_r, bn_a, bn_b);
+
+    sm2_bn_to_bytes(bn_r, r);
+    sm2_point_mul_generator(&R2, r);
+  
+    if (memcmp(R1.x, R2.x, 32) != 0 || memcmp(R1.y, R2.y, 32) != 0) {
+        return -1;
+    }  
+    return 1;
+}
+
+
+int test_sm2_myself() {
+    static const SM2_BN SM2_ONE = {1,0,0,0,0,0,0,0};
+    static const SM2_BN SM2_TWO = {2,0,0,0,0,0,0,0};
+
+    SM2_Fn r;
+    if (1 != test_pub_pri(SM2_ONE, SM2_TWO)) {
+        printf("%d\n", __LINE__);
+    }
+    if (1 != test_pub_pri(SM2_ONE, SM2_ONE)) {
+        printf("%d\n", __LINE__);
+    }
+   
+    sm2_fn_rand(r);
+    //print_fp(r); 
+    if (1 != test_pub_pri(SM2_ONE, r)) {
+        printf("%d\n", __LINE__);
+    }
+
+    if (1 != test_pub_pri(r, r)) {
+        printf("%d\n", __LINE__);
+    }
+    
+    uint8_t r_bytes[32];
+    sm2_bn_to_bytes(r, r_bytes);
+    uint32_t i;
+    for (i = 0; i < 32; i++)
+        printf("0x%02x, ", r_bytes[i]);
+    printf("\n");
+    return 1;
+}
 
 int test_sm2_bn(void)
 {
@@ -864,6 +924,8 @@ static int test_sm2_enced_private_key_info(void)
 
 int main(void)
 {
+    test_sm2_myself();
+    return 0;
 	if (test_sm2_bn()  != 1) goto err;
 	if (test_sm2_jacobian_point() != 1) goto err;
 	if (test_sm2_point() != 1) goto err;

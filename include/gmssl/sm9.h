@@ -106,6 +106,8 @@ void sm9_print_bn(const char *prefix, const sm9_bn_t a); // 标准打印格式
 
 
 typedef sm9_bn_t sm9_fp_t;
+extern const sm9_bn_t SM9_N; 
+extern const sm9_bn_t SM9_P; 
 
 #define sm9_fp_init(r)		sm9_fp_set_zero(r)
 #define sm9_fp_clean(f)		sm9_fp_set_zero(r)

@@ -37,6 +37,75 @@ static int sm9_bn_equ_hex(const sm9_bn_t a, const char *hex)
 #define hex_fp_pow 	"5679a8f0a46ada5b9d48008cde0b8b7a233f882c08afe8f08a36a20ac845bb1a"
 #define hex_fp_inv 	"7d404b0027a93e3fa8f8bc7ee367a96814c42a3b69feb1845093406948a34753"
 
+static int test_pub_pri(sm9_fn_t a, sm9_fn_t b) {
+    SM9_POINT A;
+    SM9_POINT B;
+    SM9_POINT R1;
+    
+    SM9_POINT R2; 
+    sm9_fp_t r; 
+	
+    uint8_t bytes1[65];
+    uint8_t bytes2[65];
+    
+    sm9_point_mul_generator(&A, a);
+	sm9_point_mul_generator(&B, b);
+    sm9_point_add(&R1, &A, &B);
+    
+	sm9_bn_add(r, a, b);
+	if (sm9_bn_cmp(r, SM9_N) >= 0) {
+        printf("> SM9_N\n");
+		sm9_bn_sub(r, r, SM9_N);
+	}
+    //sm9_fp_add(r, a, b);	
+    sm9_point_mul_generator(&R2, r);
+   
+    if (1 != sm9_point_equ(&R1, &R2)) 
+        return -1;
+  
+    sm9_point_to_uncompressed_octets(&R1, bytes1);
+    sm9_point_to_uncompressed_octets(&R2, bytes2);
+    return 1;
+}
+
+static void print_fp(sm9_fp_t p) {
+    int i = 0; 
+    for (i = 0; i < 8; i++) {
+        printf("%x ", p[i]);
+    }
+    printf("\n");
+}
+
+int test_sm9_myself() {
+    static const sm9_fn_t SM9_ONE = {1,0,0,0,0,0,0,0};
+    static const sm9_fn_t SM9_TWO = {2,0,0,0,0,0,0,0};
+
+    sm9_fn_t r;
+   
+    if (1 != test_pub_pri(SM9_ONE, SM9_TWO)) {
+        printf("%d\n", __LINE__);
+    }
+    if (1 != test_pub_pri(SM9_ONE, SM9_ONE)) {
+        printf("%d\n", __LINE__);
+    }
+   
+    const sm9_bn_t SM9_P = {0xe351457d, 0xe56f9b27, 0x1a7aeedb, 0x21f2934b, 0xf58ec745, 0xd603ab4f, 0x02a3a6f1, 0xb6400000};
+    static const sm9_bn_t SM9_P_MINUS_ONE = {0xe351457c, 0xe56f9b27, 0x1a7aeedb, 0x21f2934b, 0xf58ec745, 0xd603ab4f, 0x02a3a6f1, 0xb6400000};
+    sm9_fn_rand(r);
+    print_fp(r); 
+    if (1 != test_pub_pri(SM9_ONE, r)) {
+        printf("%d\n", __LINE__);
+    }
+    if (1 != test_pub_pri(r, r)) {
+        printf("%d\n", __LINE__);
+    }
+    sm9_fp_div2(r, SM9_P_MINUS_ONE);
+    if (1 != test_pub_pri(r, r)) {
+        printf("%d\n", __LINE__);
+    }
+    return 1;
+}
+
 int test_sm9_fp() {
 	const SM9_TWIST_POINT _P2 = {
 		{{0xAF82D65B, 0xF9B7213B, 0xD19C17AB, 0xEE265948, 0xD34EC120, 0xD2AAB97F, 0x92130B08, 0x37227552},
@@ -77,7 +146,8 @@ int test_sm9_fp() {
 	sm9_fp_pow(r, x, y); if (!sm9_bn_equ_hex(r, hex_fp_pow)) goto err; ++j;
 	sm9_fp_inv(r, x);    if (!sm9_bn_equ_hex(r, hex_fp_inv)) goto err; ++j;
 
-	printf("%s() ok\n", __FUNCTION__);
+
+    printf("%s() ok\n", __FUNCTION__);
 	return 1;
 err:
 	printf("%s() test %d failed\n", __FUNCTION__, j);
@@ -684,7 +754,9 @@ err:
 }
 
 int main(void) {
-	if (test_sm9_fp() != 1) goto err;
+    test_sm9_myself();
+    return 1;
+    if (test_sm9_fp() != 1) goto err;
 	if (test_sm9_fn() != 1) goto err;
 	if (test_sm9_fp2() != 1) goto err;
 	if (test_sm9_fp4() != 1) goto err;

@@ -543,7 +543,7 @@ retry:
 			error_print();
 			return -1;
 		}
-	} while (sm9_fp_is_zero(k));	
+	} while (sm9_fn_is_zero(k));	
     
 
 	// output C1 = k * G = k * P1 = (x1, y1)
@@ -552,7 +552,7 @@ retry:
 
 	// k * P = (x2, y2)
 	sm9_point_mul(&kP, k, P);
-	sm9_point_to_uncompressed_octets(&kP, x2y2);
+	sm9_point_to_uncompressed(&kP, x2y2);
 
 	// t = KDF(x2 || y2, inlen)
 	sm2_kdf(x2y2, 64, inlen, out + 96);
@@ -637,8 +637,8 @@ int sm9_curve1_do_decrypt(const sm9_fn_t d, const uint8_t *in, size_t inlen,
 	// d * C1 = (x2, y2)
 	sm9_point_mul(&C1, d, &C1);
     sm9_point_to_uncompressed(&C1, x2y2);
-    
-	// t = KDF(x2 || y2, inlen)
+	
+    // t = KDF(x2 || y2, inlen)
 	sm2_kdf(x2y2, 64, cipher_size, out);
 	if (1 == mem_is_zero(out, cipher_size)) {
 		error_print();
@@ -695,25 +695,34 @@ int sm9_curve1_decrypt(const uint8_t private_key[32], const uint8_t *in, size_t 
 	
 	return 1;
 }
+void printf_oct(uint8_t* buf, uint32_t len) {
+    for (uint32_t i = 0; i < len; i += 16) {
+        for (uint32_t j = i; j < len && j < i+16; j++) {
+            printf("%02x ",buf[j]);
+        }
+    }
+    printf("\n");
+}
 
 //k = r* [H1(ID || hid, N) + ke]
 int sm9_curve1_compute_prikey(const SM9_ENC_MASTER_KEY *mpk, const char *id, size_t idlen,
-	uint8_t kbuf[32], sm9_fp_t fix_r)
+	uint8_t kbuf[32], sm9_fn_t fix_r)
 {
-	sm9_fn_t r;
+	sm9_fn_t k;
 
 	//k = [H1(ID||hid,N) + ke] * fix_r
-	sm9_hash1(r, id, idlen, SM9_HID_ENC);
-    sm9_fp_add(r, r, mpk->ke);	
-    sm9_fp_mul(r, r, fix_r);	
-	
-    if (sm9_fp_is_zero(r) == 1) {
+	sm9_hash1(k, id, idlen, SM9_HID_ENC);
+    sm9_fn_add(k, k, mpk->ke);	
+    sm9_fn_mul(k, k, fix_r);
+
+    if (sm9_fn_is_zero(k) == 1) {
         error_print();
         return -1;
     }
-
-
-	gmssl_secure_clear(&r, sizeof(r));
+    
+    sm9_fn_to_bytes(k, kbuf);
+    
+	gmssl_secure_clear(&k, sizeof(k));
 	return 1;
 }
 
@@ -731,7 +740,7 @@ int sm9_kem_encrypt_fix_r(const SM9_ENC_MASTER_KEY *mpk, const char *id, size_t 
 	sm9_point_mul(C, r, SM9_P1);
 	sm9_point_add(C, C, &mpk->Ppube);
 
-	do {
+    do {
 		// A3: C1 = r * Q
 		sm9_point_mul(C, fix_r, C);
 		sm9_point_to_uncompressed_octets(C, cbuf);
